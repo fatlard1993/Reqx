@@ -1,0 +1,6 @@
+{
+	"babel": true,
+	"includes": [
+		"client/js/reqx.js"
+	]
+}
