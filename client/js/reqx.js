@@ -1,294 +1,288 @@
-// Use a closure to get some privacy
-(function(w){
-    'use strict';
+(function(win){
+	var DBG = false;
 
-    // Polly fill console
-    if(!console){
-        console = {
-            error: function error(){}
-        };
-    }
+	var Log = DBG ? console.error : function noop(){};
 
-    // Private helper
-    function mergeObject(){
-        var out = {};
-        for(var i = 0; i < arguments.length; i++){
-            for(var j in arguments[i]){
-                if(arguments[i].hasOwnProperty(j)){
-                    var k = arguments[i][j];
-                    if(!(k instanceof Element) && (typeof k === 'object' && !Array.isArray(k))){
-                        k = mergeObject(out[j], k);
-                    }
-                    out[j] = k;
-                }
-            }
-        }
-        return out;
-    }
+	function mergeObject(){
+		var out = {};
 
-    // Reqx constructor
-    function Reqx(opts){
-        if(!(this instanceof Reqx)){
-            var err = "Class constructor Reqx cannot be invoked without 'new'";
-            if(typeof window.TypeError === 'function'){
-                err = new TypeError(err);
-            }
-            throw err;
-        }
-        // Left merge options and save
-        this.opts = mergeObject(Reqx.defaults_options, opts);
-        // Setup JSON request
-        if(this.opts.mode){
-            this.opts.headers = mergeObject(Reqx.default_headers[this.opts.mode], this.opts.headers);
-        }
+		for(var x = 0; x < arguments.length; ++x){
+			for(var y in arguments[x]){
+				if(arguments[x].hasOwnProperty(y)){
+					var k = arguments[x][y];
 
-        return this;
-    }
+					if(!(k instanceof Element) &&(typeof k === 'object' && !Array.isArray(k))) k = mergeObject(out[y], k);
 
+					out[y] = k;
+				}
+			}
+		}
+		return out;
+	}
 
-    // Initiate HTTP request
-    Reqx.prototype.request = function(opts, callback){
-        var xhr = Reqx.getXHR();
+	function Reqx(opts){
+		if(!(this instanceof Reqx)){
+			var err = 'Class constructor Reqx cannot be invoked without "new"';
 
-        xhr.addEventListener('load', function(){
-            if(this.status >= 400){
-                callback({
-                    message: 'The server returned a status code of ' + this.status + '.',
-                    name: 'HTTP Error',
-                    status: this.status
-                });
-                return;
-            }
-            callback(null, this.responseText);
-        });
+			if(typeof window.TypeError === 'function') err = new TypeError(err);
 
-        xhr.addEventListener('error', function(){
-            callback({
-                message: 'Failed to connect to ' + opts.url,
-                name: 'Connection Failed'
-            });
-        });
+			throw err;
+		}
 
-        opts = mergeObject(this.opts, opts);
+		this.opts = mergeObject(Reqx.defaults_options, opts);
 
-        if(opts.data){
-            Reqx.preparePayload(opts);
-        }
+		// Setup JSON request
+		if(this.opts.mode) this.opts.headers = mergeObject(Reqx.default_headers[this.opts.mode], this.opts.headers);
 
-        xhr.withCredentials = opts.withCredentials;
+		return this;
+	}
 
-        xhr.open(opts.method, opts.url, true);
+	Reqx.prototype.request = function(opts, callback){
+		var xhr = Reqx.getXHR();
 
-        if(opts.headers){
-            Reqx.setHeaders(xhr, opts.headers);
-        }
+		xhr.addEventListener('load', function(){
+			if(this.status >= 400){
+				callback({
+					message: 'The server returned a status code of '+ this.status,
+					name: 'HTTP Error',
+					status: this.status
+				});
 
-        xhr.send(opts.data);
+				return;
+			}
+			callback(null, this.responseText);
+		});
 
-        return xhr;
-    };
+		xhr.addEventListener('error', function(){
+			callback({
+				message: 'Failed to connect to '+ opts.url,
+				name: 'Connection Failed'
+			});
+		});
 
-    // Define HTTP methods
-    Reqx.defineMethod = function(name){
-        var lowerCaseName = name.toLowerCase();
-        Reqx.prototype[lowerCaseName] = function(url, data, callback){
-            if(typeof data === 'function'){
-                callback = data;
-                data = undefined;
-            }
-            var retries = arguments[3];
-            var _self = this;
-            var xhr = this.request({
-                url: url,
-                data: data,
-                method: name
-            }, function(err, body){
-                if(_self.opts.parse){
-                    body = Reqx.parseResponse(xhr);
-                }
-                if(err){
-                    if(_self.opts.retry && !retries){
-                        retries = Reqx.defaults_options.slice();
-                    }
-                    if(retries && retries.length){
-                        console.error(err);
-                        setTimeout(function(){
-                            _self[lowerCaseName](url, data, callback, retries);
-                        }, retries.shift() * 1000);
-                        return;
-                    }
-                    err.body = body;
-                    callback(err, null);
-                    return;
-                }
-                callback(null, body);
-            });
-            return xhr;
-        };
-    };
+		opts = mergeObject(this.opts, opts);
 
-    // Get applicable request object
-    Reqx.getXHR = function(){
-        // Ancient browser
-        if(w.ActiveXObject){
-            return new w.ActiveXObject("Microsoft.XMLHTTP");
-        }
-        // Moder browser
-        return new w.XMLHttpRequest();
-    };
+		if(opts.data) Reqx.preparePayload(opts);
 
-    Reqx.preparePayload = function(opts){
-        if(opts.method === 'GET' && opts.data){
-            opts.url += ('?' + Reqx.toQueryString(opts.data));
-            delete opts.data;
-            return opts;
-        }
-        if(opts.mode === 'json' && typeof opts.data === 'object'){
-            opts.data = JSON.stringify(opts.data);
-            return opts;
-        }
-        if(opts.mode === 'form'){
-            if(opts.data instanceof Element){
-                opts.data = new FormData(opts.data);
-            }else if(typeof opts.data === 'object'){
-                opts.data = Reqx.toFormData(opts.data);
-            }
-            return opts;
-        }
-        if(opts.mode === 'urlencoded'){
-            opts.data = Reqx.toQueryString(opts.data);
-        }
-        return opts;
-    };
+		xhr.withCredentials = opts.withCredentials;
 
-    // Parse HTTP response
-    Reqx.parseResponse = function(xhr){
-        var headers = Reqx.parseHeaders(xhr.getAllResponseHeaders());
-        var contentType = headers['content-type'];
-        var body = xhr.responseText;
-        if(contentType && ~contentType.indexOf('json')){
-            try{
-                return JSON.parse(body);
-            }catch(err){
-                console.error({
-                    message: 'Failed to parse response as JSON',
-                    name: 'Parser Error'
-                });
-            }
-        }
-        if(xhr.responseXML){
-            return xhr.responseXML;
-        }
-        return body;
-    };
+		xhr.open(opts.method, opts.url, true);
 
-    // Parse raw headers
-    Reqx.parseHeaders = function(rawHeaders){
-        var out = {};
-        var headers = rawHeaders.split(Reqx.regex.line_return);
-        var length = headers.length;
-        for(var i = 0; i < length; i++){
-            var header = headers[i].match(Reqx.regex.header);
-            if(header){
-                out[header[1].toLowerCase()] = header[2];
-            }
-        }
-        return out;
-    };
+		if(opts.headers) Reqx.setHeaders(xhr, opts.headers);
 
-    Reqx.parseQueryString = function(queryString){
-        queryString = (queryString || document.location.search).replace(Reqx.regex.query_string, '');
-        var out = {};
-        var params = queryString.split('&');
-        for(var i = 0; i < params.length; i++){
-            var keyVal = params[i].split('=');
-            out[keyVal[0]] = keyVal[1];
-        }
-        return out;
-    };
+		xhr.send(opts.data);
 
-    Reqx.setHeaders = function(xhr, headers){
-        // Set custom headers
-        if(headers){
-            for(var header in headers){
-                if(headers.hasOwnProperty(header)){
-                    xhr.setRequestHeader(header, headers[header]);
-                }
-            }
-        }
-    };
+		return xhr;
+	};
 
-    Reqx.toFormData = function(data){
-        var form = new FormData();
-        for(var i in data){
-            if(data.hasOwnProperty(i)){
-                form.append(i, data[i]);
-            }
-        }
-        return form;
-    };
+	Reqx.defineMethod = function(name){
+		var lowerCaseName = name.toLowerCase();
 
-    // Strinify query string variables
-    Reqx.toQueryString = function(params){
-        var out = '';
-        for(var i in params){
-            if(params.hasOwnProperty(i)){
-                if(out){
-                    out += '&';
-                }
-                out += (encodeURIComponent(i) + '=' + encodeURIComponent(params[i]));
-            }
-        }
-        return out;
-    };
+		Reqx.prototype[lowerCaseName] = function(url, data, callback){
+			if(typeof data === 'function'){
+				callback = data;
+				data = undefined;
+			}
 
-    // Default options
-    Reqx.defaults_options = {
-        method: 'GET',
-        mode: 'json',
-        parse: true,
-        retry: false,
-        retryStrategy: [0.2, 2, 8],
-        withCredentials: false
-    };
+			var retries = arguments[3];
+			var _self = this;
+			var xhr = this.request({
+				url: url,
+				data: data,
+				method: name
+			}, function(err, body){
+				if(_self.opts.parse){
+					body = Reqx.parseResponse(xhr);
+				}
 
-    Reqx.default_headers = {
-        json: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json'
-        },
-        xml: {
-            'Content-Type': 'application/xml',
-            Accept: 'application/xml' 
-        },
-        form: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Accept: 'application/json, /'
-        },
-        urlencoded: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            Accept: 'application/json, /'
-        }
-    };
+				if(err){
+					if(_self.opts.retry && !retries){
+						retries = Reqx.defaults_options.slice();
+					}
 
-    Reqx.default_methods = [
-        'GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'TRACE', 'OPTIONS'
-    ];
+					if(retries && retries.length){
+						Log(err);
 
-    Reqx.version = '2.0.0';
+						setTimeout(function(){
+							_self[lowerCaseName](url, data, callback, retries);
+						}, retries.shift() * 1000);
 
-    // RegExs
-    Reqx.regex = {
-        header: /([^:]*):\s?(.+)/,
-        line_return: /\r?\n|\r/gm,
-        query_string: /^.*?\?/
-    };
+						return;
+					}
 
-    // Define methods
-    for(var i = 0; i < Reqx.default_methods.length; i++){
-        Reqx.defineMethod(Reqx.default_methods[i]);
-    }
+					err.body = body;
 
-    // Export to window
-    w.Reqx = Reqx;
+					callback(err, null);
+
+					return;
+				}
+
+				callback(null, body);
+			});
+
+			return xhr;
+		};
+	};
+
+	Reqx.getXHR = function(){
+		if(win.ActiveXObject) return new win.ActiveXObject('Microsoft.XMLHTTP');// Ancient browser
+
+		return new win.XMLHttpRequest();// Modern browser
+	};
+
+	Reqx.preparePayload = function(opts){
+		if(opts.method === 'GET' && opts.data){
+			opts.url +=('?'+ Reqx.toQueryString(opts.data));
+
+			delete opts.data;
+
+			return opts;
+		}
+
+		if(opts.mode === 'json' && typeof opts.data === 'object'){
+			opts.data = JSON.stringify(opts.data);
+
+			return opts;
+		}
+
+		if(opts.mode === 'form'){
+			if(opts.data instanceof Element) opts.data = new FormData(opts.data);
+
+			else if(typeof opts.data === 'object') opts.data = Reqx.toFormData(opts.data);
+
+			return opts;
+		}
+
+		if(opts.mode === 'urlencoded') opts.data = Reqx.toQueryString(opts.data);
+
+		return opts;
+	};
+
+	Reqx.parseResponse = function(xhr){
+		var headers = Reqx.parseHeaders(xhr.getAllResponseHeaders());
+		var contentType = headers['content-type'];
+		var body = xhr.responseText;
+
+		if(contentType && ~contentType.indexOf('json')){
+			try{
+				return JSON.parse(body);
+			}
+
+			catch(err){
+				Log({
+					message: 'Failed to parse response as JSON',
+					name: 'Parser Error'
+				});
+			}
+		}
+
+		if(xhr.responseXML) return xhr.responseXML;
+
+		return body;
+	};
+
+	Reqx.parseHeaders = function(rawHeaders){
+		var out = {};
+		var headers = rawHeaders.split(Reqx.regex.line_return), header;
+		var length = headers.length;
+
+		for(var x = 0; x < length; ++x){
+			header = headers[x].match(Reqx.regex.header);
+
+			if(header) out[header[1].toLowerCase()] = header[2];
+		}
+
+		return out;
+	};
+
+	Reqx.parseQueryString = function(queryString){
+		queryString = (queryString || document.location.search).replace(Reqx.regex.query_string, '');
+
+		var out = {};
+		var params = queryString.split('&');
+
+		for(var x = 0; x < params.length; ++x){
+			var keyVal = params[x].split('=');
+
+			out[keyVal[0]] = keyVal[1];
+		}
+
+		return out;
+	};
+
+	Reqx.setHeaders = function(xhr, headers){
+		if(!headers) return;
+
+		for(var header in headers){
+			if(headers.hasOwnProperty(header)) xhr.setRequestHeader(header, headers[header]);
+		}
+	};
+
+	Reqx.toFormData = function(data){
+		var form = new FormData();
+
+		for(var prop in data){
+			if(data.hasOwnProperty(prop)) form.append(prop, data[prop]);
+		}
+
+		return form;
+	};
+
+	Reqx.toQueryString = function(params){
+		var out = '';
+
+		for(var prop in params){
+			if(params.hasOwnProperty(prop)){
+				if(out) out += '&';
+
+				out += (encodeURIComponent(prop) +'='+ encodeURIComponent(params[prop]));
+			}
+		}
+
+		return out;
+	};
+
+	Reqx.defaults_options = {
+		method: 'GET',
+		mode: 'json',
+		parse: true,
+		retry: false,
+		retryStrategy: [0.2, 2, 8],
+		withCredentials: false
+	};
+
+	Reqx.default_headers = {
+		json: {
+			'Content-Type': 'application/json',
+			Accept: 'application/json'
+		},
+		xml: {
+			'Content-Type': 'application/xml',
+			Accept: 'application/xml'
+		},
+		form: {
+			'Content-Type': 'application/x-www-form-urlencoded',
+			Accept: 'application/json, /'
+		},
+		urlencoded: {
+			'Content-Type': 'application/x-www-form-urlencoded',
+			Accept: 'application/json, /'
+		}
+	};
+
+	Reqx.default_methods = ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'TRACE', 'OPTIONS'];
+
+	Reqx.version = '2.0.1';
+
+	Reqx.regex = {
+		header: /([^:]*):\s?(.+)/,
+		line_return: /\r?\n|\r/gm,
+		query_string: /^.*?\?/
+	};
+
+	for(var x = 0; x < Reqx.default_methods.length; ++x){
+		Reqx.defineMethod(Reqx.default_methods[x]);
+	}
+
+	win.Reqx = Reqx;
 })(window);
